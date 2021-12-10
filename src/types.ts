@@ -1,3 +1,4 @@
+export {RedisOptions} from 'ioredis';
 export type RedisConnectionEvents = 'connect'
 	| 'ready'
 	| 'error'
@@ -7,4 +8,3 @@ export type RedisConnectionEvents = 'connect'
 	| 'wait';
 
 export type RedisCallback<T = string | {}> = (message: T) => void;
-
