@@ -1,4 +1,4 @@
-export {RedisOptions} from 'ioredis';
+export  {RedisOptions, Redis as RedisInstace} from 'ioredis';
 export type RedisConnectionEvents = 'connect'
 	| 'ready'
 	| 'error'

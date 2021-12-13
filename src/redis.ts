@@ -1,4 +1,4 @@
-import Instance, {RedisOptions} from 'ioredis';
+import Instance, {RedisOptions, Redis as RedisInstace} from 'ioredis';
 import {RedisCallback} from './types';
 
 
@@ -6,9 +6,9 @@ export class Redis {
 
 	protected readonly config: RedisOptions;
 
-	public readonly publisher: Instance.Redis;
-	public readonly subscriber: Instance.Redis;
-	public readonly client: Instance.Redis;
+	public readonly publisher: RedisInstace;
+	public readonly subscriber: RedisInstace;
+	public readonly client: RedisInstace;
 
 	protected readonly subscribers: Map<string, RedisCallback[]> = new Map<string, RedisCallback[]>();
 

@@ -36,7 +36,7 @@ interface Message {
 }
 
 await redis.listen('channel', (message: Message): void => {
-    console.log(message) // { hello: 'world', moto: 667 }
+    console.log(message); // { hello: 'world', moto: 667 }
 });
 
 await redis.publish('channel', { hello: 'world', moto: 667 });
