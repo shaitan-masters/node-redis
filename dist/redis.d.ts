@@ -5,11 +5,11 @@ export declare class Redis {
     readonly publisher: RedisInstace;
     readonly subscriber: RedisInstace;
     readonly client: RedisInstace;
-    protected readonly subscribers: Map<string, RedisCallback[]>;
+    protected readonly subscribers: Map<string, RedisCallback<string | {}>[]>;
     constructor(config: RedisOptions);
     protected handlesSubscriberEvents(): void;
     protected parseMessage(message: string): object | string;
     publish(channel: string, message: object): Promise<number>;
     publish(channel: string, message: string): Promise<number>;
-    listen(channel: string, cb: RedisCallback): Promise<number>;
+    listen<T>(channel: string, cb: RedisCallback<T>): Promise<number>;
 }

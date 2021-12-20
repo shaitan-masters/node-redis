@@ -10,7 +10,7 @@ export class Redis {
 	public readonly subscriber: RedisInstace;
 	public readonly client: RedisInstace;
 
-	protected readonly subscribers: Map<string, RedisCallback[]> = new Map<string, RedisCallback[]>();
+	protected readonly subscribers: Map<string, RedisCallback<string | {}>[]> = new Map<string, RedisCallback<string | {}>[]>();
 
 	constructor(config: RedisOptions) {
 		this.config = config;
@@ -50,7 +50,7 @@ export class Redis {
 		);
 	}
 
-	public async listen(channel: string, cb: RedisCallback): Promise<number> {
+	public async listen<T>(channel: string, cb: RedisCallback<T>): Promise<number> {
 		const exists = this.subscribers.get(channel);
 		exists ? this.subscribers.set(channel, [...exists, cb]) : this.subscribers.set(channel, [cb]);
 
