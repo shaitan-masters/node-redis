@@ -1,5 +1,6 @@
-export  {RedisOptions, Redis as RedisInstace} from 'ioredis';
-export type RedisConnectionEvents = 'connect'
+export {RedisOptions, Redis as RedisInstace} from 'ioredis';
+export type RedisConnectionEvents =
+	'connect'
 	| 'ready'
 	| 'error'
 	| 'close'
@@ -8,3 +9,7 @@ export type RedisConnectionEvents = 'connect'
 	| 'wait';
 
 export type RedisCallback<T = string | {}> = (message: T) => void;
+
+export interface RedisConfig {
+	timeout: number;
+}

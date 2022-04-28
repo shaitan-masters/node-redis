@@ -1,24 +1,67 @@
+import {Events} from '@osmium/events';
 import Instance, {RedisOptions, Redis as RedisInstace} from 'ioredis';
-import {RedisCallback} from './types';
-
+import {RedisCallback, RedisConfig} from './types';
+import {isObject} from '@osmium/tools';
 
 export class Redis {
+	private readonly timeout: number = 10000;
 
-	protected readonly config: RedisOptions;
+	public readonly events: Events;
+	protected readonly config: RedisOptions | string;
 
 	public readonly publisher: RedisInstace;
 	public readonly subscriber: RedisInstace;
 	public readonly client: RedisInstace;
+	public eventsList = {
+		CONNECTED   : 'connected',
+		DISCONNECTED: 'disconnected',
+		ERROR       : 'error'
+	};
+	public errorSource = {
+		CLIENT    : 'client',
+		PUBLISHER : 'publisher',
+		SUBSCRIBER: 'subscriber'
+	};
 
-	protected readonly subscribers: Map<string, RedisCallback<string | {}>[]> = new Map<string, RedisCallback<string | {}>[]>();
+	protected readonly subscribers: Map<string, RedisCallback[]> = new Map<string, RedisCallback[]>();
 
-	constructor(config: RedisOptions) {
-		this.config = config;
-		this.client = new Instance(this.config);
+	constructor(redisConfig: RedisOptions | string, libraryConfig: RedisConfig | null = null) {
+		this.config = redisConfig;
+
+		this.events = new Events<string>();
+		this.client = new Instance(this.config as RedisOptions);
+
+		if (libraryConfig?.timeout) {
+			this.timeout = libraryConfig.timeout;
+		}
+
+		this.client.on('connect', () => this.events.emit(this.eventsList.CONNECTED));
+		this.client.on('disconnect', () => this.events.emit(this.eventsList.DISCONNECTED));
+
 		this.publisher = this.client.duplicate();
 		this.subscriber = this.client.duplicate();
 
+		this.client.on('error', (e) => this.events.emit(this.eventsList.DISCONNECTED, this.errorSource.CLIENT, e));
+		this.publisher.on('error', (e) => this.events.emit(this.eventsList.DISCONNECTED, this.errorSource.PUBLISHER, e));
+		this.subscriber.on('error', (e) => this.events.emit(this.eventsList.DISCONNECTED, this.errorSource.SUBSCRIBER, e));
+
 		this.handlesSubscriberEvents();
+	}
+
+	async awaitConnection(): Promise<void> {
+		if (this.client.status === 'ready') return;
+
+		const tId = setTimeout(() => {
+			if (this.client.status === 'ready') return;
+
+			const options = this.client.options;
+			const connectionString = `${options.tls ? 'rediss' : 'redis'}://${options.host}:${options.port}/${options.db}`;
+
+			throw new Error(`[Redis] Not connected to server - ${connectionString}`);
+		}, this.timeout);
+
+		await this.events.wait(this.eventsList.CONNECTED);
+		clearTimeout(tId);
 	}
 
 	protected handlesSubscriberEvents(): void {
@@ -36,24 +79,77 @@ export class Redis {
 		}
 	}
 
-	public publish(channel: string, message: object): Promise<number>;
-	public publish(channel: string, message: string): Promise<number>;
+	public async publish<MessageType = string | object>(channel: string, message: MessageType): Promise<number> {
+		await this.awaitConnection();
 
-	public async publish(channel: string, message: string | object): Promise<number> {
-		if (!['object', 'string'].includes(typeof message)) {
-			throw new Error(`${message} is ${typeof message} wrong type`);
+		let stringMessage: string;
+		if (isObject(message)) {
+			stringMessage = JSON.stringify(message);
+		} else {
+			stringMessage = message as unknown as string;
 		}
 
-		return this.publisher.publish(
-			channel,
-			typeof message === 'string' ? message : JSON.stringify(message)
-		);
+		return this.publisher.publish(channel, stringMessage);
 	}
 
-	public async listen<T>(channel: string, cb: RedisCallback<T>): Promise<number> {
+	public async listen<CallbackArgumentType>(channel: string, cb: RedisCallback<CallbackArgumentType>): Promise<number> {
 		const exists = this.subscribers.get(channel);
-		exists ? this.subscribers.set(channel, [...exists, cb]) : this.subscribers.set(channel, [cb]);
+		this.subscribers.set(channel, exists ? [...exists, cb] : [cb]);
 
-		return this.subscriber.subscribe(channel);
+		await this.awaitConnection();
+		return await this.subscriber.subscribe(channel) as number;
+	}
+
+	async set(key: string, value: string, expire: string | number | null = null): Promise<void> {
+		await this.awaitConnection();
+
+		if (expire) {
+			await this.client.setex(key, expire, value);
+		} else {
+			await this.client.set(key, value);
+		}
+	}
+
+	async get(key: string): Promise<string | null> {
+		await this.awaitConnection();
+
+		return this.client.get(key);
+	}
+
+	async setObject<ValueType extends object = {}>(key: string, value: ValueType, assignToExists = false, expire: number | string | null = null): Promise<ValueType> {
+		if (assignToExists) {
+			const fetchedValue = await this.getObject<object>(key);
+
+			let assignValue: object = {};
+			if (fetchedValue) {
+				assignValue = fetchedValue;
+			}
+
+			value = Object.assign(assignValue, value);
+		}
+
+		const encoded = JSON.stringify(value);
+		await this.set(key, encoded, expire);
+
+		return value;
+	}
+
+	async getObject<RetrunType extends object = {}>(key: string): Promise<RetrunType | null> {
+		const ret = await this.get(key);
+		if (!ret) return null;
+
+		try {
+			const fetchedData = JSON.parse(ret);
+
+			return isObject(fetchedData) ? fetchedData : null;
+		} catch (e) {
+			return null;
+		}
+	}
+
+	async del(...keyOrKeys: string[]): Promise<number> {
+		await this.awaitConnection();
+
+		return this.client.del(...keyOrKeys);
 	}
 }
