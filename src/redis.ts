@@ -8,44 +8,69 @@ export class Redis {
 
 	public readonly events: Events;
 	protected readonly config: RedisOptions | string;
+	protected readonly connectionString: string;
 
 	public readonly publisher: RedisInstace;
 	public readonly subscriber: RedisInstace;
 	public readonly client: RedisInstace;
-	public eventsList = {
-		CONNECTED   : 'connected',
-		DISCONNECTED: 'disconnected',
-		ERROR       : 'error'
-	};
-	public errorSource = {
-		CLIENT    : 'client',
-		PUBLISHER : 'publisher',
-		SUBSCRIBER: 'subscriber'
-	};
 
 	protected readonly subscribers: Map<string, RedisCallback[]> = new Map<string, RedisCallback[]>();
 
-	constructor(redisConfig: RedisOptions | string, libraryConfig: RedisConfig | null = null) {
+	static createInstance(connectionString: string, redisConfig: RedisOptions = {}, libraryConfig?: RedisConfig): Redis {
+		return new Redis(connectionString, redisConfig, libraryConfig);
+	}
+
+	constructor(connectionString: string, redisConfig: RedisOptions = {}, libraryConfig?: RedisConfig) {
+		this.connectionString = connectionString;
 		this.config = redisConfig;
 
 		this.events = new Events<string>();
-		this.client = new Instance(this.config as RedisOptions);
+		this.client = new Instance(connectionString, this.config);
 
 		if (libraryConfig?.timeout) {
 			this.timeout = libraryConfig.timeout;
 		}
 
-		this.client.on('connect', () => this.events.emit(this.eventsList.CONNECTED));
-		this.client.on('disconnect', () => this.events.emit(this.eventsList.DISCONNECTED));
+		this.client.on(Redis.redisEvent.CONNECT, () => this.events.emit(Redis.event.CONNECTED));
+		this.client.on(Redis.redisEvent.DISCONNECT, () => this.events.emit(Redis.event.DISCONNECTED));
 
 		this.publisher = this.client.duplicate();
 		this.subscriber = this.client.duplicate();
 
-		this.client.on('error', (e) => this.events.emit(this.eventsList.DISCONNECTED, this.errorSource.CLIENT, e));
-		this.publisher.on('error', (e) => this.events.emit(this.eventsList.DISCONNECTED, this.errorSource.PUBLISHER, e));
-		this.subscriber.on('error', (e) => this.events.emit(this.eventsList.DISCONNECTED, this.errorSource.SUBSCRIBER, e));
+		this.client.on(Redis.redisEvent.ERROR, async (e) => {
+			await this.events.emit(Redis.event.ERROR, Redis.errorSource.CLIENT, e);
+			await this.events.emit(Redis.event.DISCONNECTED);
+
+			this.client.disconnect(true);
+		});
+
+		this.publisher.on(Redis.redisEvent.ERROR, async (e) => {
+			await this.events.emit(Redis.event.ERROR, Redis.errorSource.PUBLISHER, e);
+			await this.events.emit(Redis.event.DISCONNECTED);
+
+			this.client.disconnect(true);
+		});
+
+		this.subscriber.on(Redis.redisEvent.ERROR, async (e) => {
+			await this.events.emit(Redis.event.ERROR, Redis.errorSource.SUBSCRIBER, e);
+			await this.events.emit(Redis.event.DISCONNECTED);
+
+			this.client.disconnect(true);
+		});
 
 		this.handlesSubscriberEvents();
+	}
+
+	onConnect(cb: (instance: Redis) => void | Promise<void>) {
+		this.events.on(Redis.event.CONNECTED, () => {
+			cb(this);
+		});
+	}
+
+	onDisconnect(cb: (instance: Redis) => void | Promise<void>) {
+		this.events.on(Redis.event.DISCONNECTED, () => {
+			cb(this);
+		});
 	}
 
 	async awaitConnection(): Promise<void> {
@@ -54,13 +79,10 @@ export class Redis {
 		const tId = setTimeout(() => {
 			if (this.client.status === 'ready') return;
 
-			const options = this.client.options;
-			const connectionString = `${options.tls ? 'rediss' : 'redis'}://${options.host}:${options.port}/${options.db}`;
-
-			throw new Error(`[Redis] Not connected to server - ${connectionString}`);
+			throw new Error(`[Redis] Timeout - not connected to server - ${this.connectionString}`);
 		}, this.timeout);
 
-		await this.events.wait(this.eventsList.CONNECTED);
+		await this.events.wait(Redis.event.CONNECTED);
 		clearTimeout(tId);
 	}
 
@@ -151,5 +173,25 @@ export class Redis {
 		await this.awaitConnection();
 
 		return this.client.del(...keyOrKeys);
+	}
+}
+
+export namespace Redis {
+	export const enum redisEvent {
+		CONNECT    = 'connect',
+		DISCONNECT = 'disconnect',
+		ERROR      = 'error'
+	}
+
+	export const enum event {
+		CONNECTED    = 'connected',
+		DISCONNECTED = 'disconnected',
+		ERROR        = 'error'
+	}
+
+	export const enum errorSource {
+		CLIENT     = 'client',
+		PUBLISHER  = 'publisher',
+		SUBSCRIBER = 'subscriber'
 	}
 }
