@@ -1,7 +1,7 @@
 {
 	"name"           : "@shaitan-masters/redis",
 	"description"    : "Redis wrapper",
-	"version"        : "0.2.0",
+	"version"        : "0.3.0",
 	"authors"        : {
 		"name" : "Alexander Gropynov | CREW Shaitan Masters",
 		"email": "alexander.gropyanov@mojam.co"

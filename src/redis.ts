@@ -22,7 +22,9 @@ export class Redis {
 
 	constructor(connectionString: string, redisConfig: RedisOptions = {}, libraryConfig?: RedisConfig) {
 		this.connectionString = connectionString;
-		this.config = redisConfig;
+		this.config = Object.assign({
+			enableReadyCheck: true
+		}, redisConfig);
 
 		this.events = new Events<string>();
 		this.client = new Instance(connectionString, this.config);
@@ -32,6 +34,7 @@ export class Redis {
 		}
 
 		this.client.on(Redis.redisEvent.CONNECT, () => this.events.emit(Redis.event.CONNECTED));
+		this.client.on(Redis.redisEvent.READY, () => this.events.emit(Redis.event.READY));
 		this.client.on(Redis.redisEvent.DISCONNECT, () => this.events.emit(Redis.event.DISCONNECTED));
 
 		this.publisher = this.client.duplicate();
@@ -67,6 +70,13 @@ export class Redis {
 		});
 	}
 
+	onReady(cb: (instance: Redis) => void | Promise<void>) {
+		this.events.on(Redis.event.READY, () => {
+			cb(this);
+		});
+	}
+
+
 	onDisconnect(cb: (instance: Redis) => void | Promise<void>) {
 		this.events.on(Redis.event.DISCONNECTED, () => {
 			cb(this);
@@ -82,7 +92,7 @@ export class Redis {
 			throw new Error(`[Redis] Timeout - not connected to server - ${this.connectionString}`);
 		}, this.timeout);
 
-		await this.events.wait(Redis.event.CONNECTED);
+		await this.events.wait(Redis.event.READY);
 		clearTimeout(tId);
 	}
 
@@ -179,12 +189,14 @@ export class Redis {
 export namespace Redis {
 	export const enum redisEvent {
 		CONNECT    = 'connect',
+		READY      = 'ready',
 		DISCONNECT = 'disconnect',
 		ERROR      = 'error'
 	}
 
 	export const enum event {
 		CONNECTED    = 'connected',
+		READY        = 'ready',
 		DISCONNECTED = 'disconnected',
 		ERROR        = 'error'
 	}
